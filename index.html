@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sese Bağlan | Premium Voice</title>
+    <!-- Modern Fontlar -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <!-- İkonlar -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PeerJS -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <!-- RNNoise AI -->
+    <script src="https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/dist/rnnoise.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --border: #333333;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --danger: #ef4444;
+            --success: #10b981;
+            --text: #e5e5e5;
+            --text-muted: #888888;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        body { background: var(--bg-color); color: var(--text); min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+        
+        .box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; }
+
+        /* Başlangıç Ekranı */
+        #join-screen { padding: 40px; width: 90%; max-width: 400px; text-align: center; }
+        #join-screen h1 { font-size: 2rem; margin-bottom: 10px; font-weight: 600; color: #fff; }
+        #join-screen p { color: var(--text-muted); margin-bottom: 30px; font-size: 0.9rem; }
+        
+        .input-group { width: 100%; margin-bottom: 20px; }
+        .input-group input { width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none; }
+        .input-group input:focus { border-color: var(--accent); }
+        
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .btn:hover { background: var(--accent-hover); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        #join-status { margin-top: 15px; font-size: 0.85rem; color: var(--text-muted); height: 20px; }
+
+        /* Ana Sohbet Ekranı */
+        #main-screen { display: none; width: 95%; max-width: 900px; height: 90vh; flex-direction: column; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border); }
+        .room-info h2 { font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;}
+        .badge { background: #2a2a2a; color: var(--text-muted); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--border); }
+        
+        .header-actions { display: flex; gap: 10px; }
+        .btn-icon { background: #2a2a2a; border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 6px; cursor: pointer; }
+        .btn-icon:hover { background: #333; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; flex: 1; overflow-y: auto; padding: 20px; align-content: start; }
+
+        .card { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; position: relative; min-height: 180px; }
+        .card .avatar { width: 70px; height: 70px; border-radius: 50%; background: #2a2a2a; border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; font-size: 1.8rem; font-weight: 600; margin-bottom: 15px; color: #fff;}
+        .card .name { font-size: 1rem; font-weight: 600; text-align: center; }
+        
+        .card .ping { position: absolute; top: 10px; right: 10px; font-size: 0.75rem; color: var(--text-muted); background: #121212; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+        .card .ping i { color: var(--success); }
+        .card .ping.high i { color: var(--danger); }
+        
+        .card .status-icon { position: absolute; bottom: 10px; right: 10px; background: #121212; width: 30px; height: 30px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 0.85rem; border: 1px solid var(--border); }
+        .card.muted .status-icon { color: var(--danger); }
+        .card:not(.muted) .status-icon { color: var(--success); }
+        
+        /* Kontrol Barı (Cihaz Seçimleri) */
+        .controls-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-top: 1px solid var(--border); background: var(--card-bg); flex-wrap: wrap; gap: 15px; }
+        
+        .device-group { display: flex; align-items: center; gap: 10px; background: #2a2a2a; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
+        .device-group i { color: var(--text-muted); }
+        .device-select { background: transparent; color: var(--text); border: none; outline: none; font-size: 0.85rem; max-width: 150px; cursor: pointer; }
+        .device-select option { background: var(--card-bg); color: var(--text); }
+        
+        .btn-mic { width: 50px; height: 50px; border-radius: 50%; border: none; font-size: 1.2rem; color: #fff; cursor: pointer; background: var(--accent); display: flex; justify-content: center; align-items: center; }
+        .btn-mic.muted { background: var(--danger); }
+
+        /* Ayarlar Modalı */
+        #settings-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; }
+        .modal-content { width: 90%; max-width: 400px; padding: 30px; position: relative; }
+        .modal-content h3 { margin-bottom: 20px; font-size: 1.2rem; }
+        .close-modal { position: absolute; top: 20px; right: 20px; cursor: pointer; color: var(--text-muted); }
+        .close-modal:hover { color: #fff; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.85rem; }
+        .form-group input { width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none; }
+        
+        .toggle-container { display: flex; justify-content: space-between; align-items: center; margin: 20px 0; padding: 12px; background: #2a2a2a; border-radius: 6px; border: 1px solid var(--border); }
+        .toggle-info span { font-size: 0.95rem; }
+        .toggle-info small { font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 4px; }
+        
+        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #ccc; border-radius: 50%; transition: .2s; }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(20px); background-color: #fff; }
+
+        #toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #2a2a2a; padding: 10px 20px; border-radius: 6px; border: 1px solid var(--border); display: none; font-size: 0.9rem; z-index: 1000; }
+        
+        @media(max-width: 600px) {
+            .controls-bar { justify-content: center; }
+            .device-select { max-width: 100px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Başlangıç Ekranı -->
+    <div id="join-screen" class="box">
+        <h1>Sese Bağlan</h1>
+        <p>Odaya katılmak için ismini gir ve cihazlara izin ver.</p>
+        
+        <div class="input-group">
+            <input type="text" id="name-input" placeholder="Adınız" autocomplete="off" />
+        </div>
+        
+        <button id="join-btn" class="btn">
+            <i class="fas fa-headphones"></i> Sese Bağlan
+        </button>
+        <div id="join-status"></div>
+    </div>
+
+    <!-- Ana Sohbet Ekranı -->
+    <div id="main-screen" class="box">
+        <header>
+            <div class="room-info">
+                <h2><i class="fas fa-users"></i> Sesli Oda <span class="badge" id="room-badge">Odadan</span></h2>
+            </div>
+            <div class="header-actions">
+                <button class="btn-icon" id="btn-copy" title="Davet Linkini Kopyala"><i class="fas fa-link"></i></button>
+                <button class="btn-icon" id="btn-settings" title="Ayarlar"><i class="fas fa-cog"></i></button>
+            </div>
+        </header>
+
+        <div class="grid" id="grid">
+            <!-- Katılımcılar buraya gelecek -->
+        </div>
+
+        <div class="controls-bar">
+            <div class="device-group">
+                <i class="fas fa-microphone"></i>
+                <select id="mic-select" class="device-select"><option>Mikrofon Yükleniyor...</option></select>
+            </div>
+            
+            <button class="btn-mic" id="btn-mic" title="Mikrofonu Aç/Kapat">
+                <i class="fas fa-microphone"></i>
+            </button>
+            
+            <button class="btn-mic" id="btn-deafen" title="Herkesi Sustur (Sağırlaş)">
+                <i class="fas fa-headphones"></i>
+            </button>
+            
+            <div class="device-group">
+                <i class="fas fa-volume-up"></i>
+                <select id="speaker-select" class="device-select"><option>Hoparlör Yükleniyor...</option></select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ayarlar Modalı -->
+    <div id="settings-modal">
+        <div class="box modal-content">
+            <i class="fas fa-times close-modal" id="close-settings"></i>
+            <h3>Ayarlar</h3>
+            
+            <div class="form-group">
+                <label>Görünen Adın</label>
+                <input type="text" id="settings-name" placeholder="Adınız">
+            </div>
+            
+            <div class="toggle-container">
+                <div class="toggle-info">
+                    <span>Gürültü Engelleme (Yapay Zeka)</span>
+                    <small>Fısıltıyı iletir, klavyeyi tamamen keser</small>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="settings-noise" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="form-group" style="margin-top: 15px;">
+                <label>Mikrofon Kısayol Tuşu (Sadece tarayıcı açıkken çalışır)</label>
+                <button id="btn-hotkey" class="btn" style="background:var(--card-bg); border:1px solid var(--border); color:var(--text);">Ata: (Yok)</button>
+            </div>
+            
+            <button id="btn-save-settings" class="btn" style="margin-top: 10px;">Kaydet ve Kapat</button>
+        </div>
+    </div>
+
+    <!-- Bildirim (Toast) -->
+    <div id="toast">Mesaj</div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomId = urlParams.get('room');
+        
+        let peer = null;
+        let myId = null;
+        let isHost = false;
+        
+        let myName = "";
+        let myIsMuted = false;
+        let myIsDeafened = false;
+        let myNoiseSuppression = true;
+        let micHotkey = null;
+        let isAssigningHotkey = false;
+        
+        let currentMicId = "";
+        let currentSpeakerId = "";
+        
+        let rawMicStream = null;
+        let audioContext = null;
+        let micSourceNode = null;
+        let noiseGateNode = null;
+        let destNode = null;
+        let processedStream = null;
+        
+        let rnnoise = null;
+        let denoiseState = null;
+        
+        const peers = {}; 
+
+        const ui = {
+            joinScreen: document.getElementById('join-screen'),
+            mainScreen: document.getElementById('main-screen'),
+            nameInput: document.getElementById('name-input'),
+            joinBtn: document.getElementById('join-btn'),
+            statusText: document.getElementById('join-status'),
+            grid: document.getElementById('grid'),
+            toast: document.getElementById('toast'),
+            btnMic: document.getElementById('btn-mic'),
+            btnDeafen: document.getElementById('btn-deafen'),
+            micSelect: document.getElementById('mic-select'),
+            speakerSelect: document.getElementById('speaker-select'),
+            roomBadge: document.getElementById('room-badge'),
+            settingsModal: document.getElementById('settings-modal'),
+            settingsName: document.getElementById('settings-name'),
+            settingsNoise: document.getElementById('settings-noise'),
+            btnHotkey: document.getElementById('btn-hotkey')
+        };
+
+        if (!roomId) {
+            roomId = Math.random().toString(36).substring(2, 8);
+            window.history.replaceState(null, '', '?room=' + roomId);
+        }
+        ui.roomBadge.innerText = "#" + roomId;
+
+        ui.joinBtn.addEventListener('click', async () => {
+            myName = ui.nameInput.value.trim() || "Anonim";
+            ui.joinBtn.disabled = true;
+            ui.statusText.innerText = "Mikrofon izni bekleniyor...";
+            
+            try {
+                await initWebAudio();
+                await restartMic(); 
+                await populateDevices();
+                
+                ui.statusText.innerText = "Odaya bağlanılıyor...";
+                initPeerJS();
+            } catch (err) {
+                console.error(err);
+                ui.statusText.innerText = "Hata: " + (err.message || err);
+                ui.joinBtn.disabled = false;
+            }
+        });
+
+        async function initWebAudio() {
+            if (!rnnoise) {
+                ui.statusText.innerText = "Yapay zeka gürültü filtresi yükleniyor...";
+                rnnoise = await Rnnoise.load();
+                denoiseState = rnnoise.createDenoiseState();
+            }
+            
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+            destNode = audioContext.createMediaStreamDestination();
+            noiseGateNode = audioContext.createScriptProcessor(4096, 1, 1);
+            
+            let inputQueue = new Float32Array(0);
+            let outputQueue = new Float32Array(0);
+            
+            noiseGateNode.onaudioprocess = function(audioProcessingEvent) {
+                const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
+                const outputBuffer = audioProcessingEvent.outputBuffer.getChannelData(0);
+                
+                if (!myNoiseSuppression || !denoiseState) {
+                    for (let i = 0; i < inputBuffer.length; i++) outputBuffer[i] = inputBuffer[i];
+                    return;
+                }
+                
+                let newInput = new Float32Array(inputQueue.length + inputBuffer.length);
+                newInput.set(inputQueue);
+                newInput.set(inputBuffer, inputQueue.length);
+                inputQueue = newInput;
+                
+                while (inputQueue.length >= 480) {
+                    let chunk = inputQueue.slice(0, 480);
+                    inputQueue = inputQueue.slice(480);
+                    denoiseState.processFrame(chunk);
+                    let newOutput = new Float32Array(outputQueue.length + 480);
+                    newOutput.set(outputQueue);
+                    newOutput.set(chunk, outputQueue.length);
+                    outputQueue = newOutput;
+                }
+                
+                if (outputQueue.length >= outputBuffer.length) {
+                    let toOutput = outputQueue.slice(0, outputBuffer.length);
+                    outputQueue = outputQueue.slice(outputBuffer.length);
+                    for (let i = 0; i < outputBuffer.length; i++) outputBuffer[i] = toOutput[i];
+                } else {
+                    for (let i = 0; i < outputBuffer.length; i++) outputBuffer[i] = 0;
+                }
+            };
+            
+            noiseGateNode.connect(destNode);
+            const dummyGain = audioContext.createGain();
+            dummyGain.gain.value = 0;
+            noiseGateNode.connect(dummyGain);
+            dummyGain.connect(audioContext.destination);
+            processedStream = destNode.stream;
+        }
+
+        async function restartMic() {
+            if (rawMicStream) rawMicStream.getTracks().forEach(t => t.stop());
+            const constraints = { audio: { echoCancellation: true, noiseSuppression: myNoiseSuppression, autoGainControl: true } };
+            if (currentMicId) constraints.audio.deviceId = { exact: currentMicId };
+            
+            rawMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+            rawMicStream.getAudioTracks().forEach(t => t.enabled = !myIsMuted);
+            
+            if (micSourceNode) micSourceNode.disconnect();
+            micSourceNode = audioContext.createMediaStreamSource(rawMicStream);
+            micSourceNode.connect(noiseGateNode);
+        }
+
+        async function populateDevices() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            ui.micSelect.innerHTML = '';
+            ui.speakerSelect.innerHTML = '';
+            let micCount = 1;
+            let speakerCount = 1;
+            devices.forEach(device => {
+                if (device.kind === 'audioinput') {
+                    const opt = document.createElement('option');
+                    opt.value = device.deviceId;
+                    opt.text = device.label || `Mikrofon ${micCount++}`;
+                    if (device.deviceId === currentMicId) opt.selected = true;
+                    ui.micSelect.appendChild(opt);
+                } else if (device.kind === 'audiooutput') {
+                    const opt = document.createElement('option');
+                    opt.value = device.deviceId;
+                    opt.text = device.label || `Hoparlör ${speakerCount++}`;
+                    if (device.deviceId === currentSpeakerId) opt.selected = true;
+                    ui.speakerSelect.appendChild(opt);
+                }
+            });
+            if (!currentMicId && ui.micSelect.options.length > 0) currentMicId = ui.micSelect.options[0].value;
+            if (!currentSpeakerId && ui.speakerSelect.options.length > 0) currentSpeakerId = ui.speakerSelect.options[0].value;
+        }
+
+        ui.micSelect.addEventListener('change', async (e) => {
+            currentMicId = e.target.value;
+            await restartMic();
+        });
+
+        ui.speakerSelect.addEventListener('change', (e) => {
+            currentSpeakerId = e.target.value;
+            Object.values(peers).forEach(p => {
+                if (p.audio && typeof p.audio.setSinkId === 'function') {
+                    p.audio.setSinkId(currentSpeakerId).catch(err => console.error(err));
+                }
+            });
+        });
+
+        function initPeerJS() {
+            const p = new Peer(roomId);
+            p.on('open', id => { isHost = true; myId = id; peer = p; setupPeerListeners(); enterRoom(); });
+            p.on('error', err => {
+                if (err.type === 'unavailable-id') {
+                    const guestPeer = new Peer();
+                    guestPeer.on('open', id => { isHost = false; myId = id; peer = guestPeer; setupPeerListeners(); connectToPeer(roomId); enterRoom(); });
+                } else {
+                    ui.statusText.innerText = "Bağlantı hatası: " + err.type;
+                    ui.joinBtn.disabled = false;
+                }
+            });
+        }
+
+        function setupPeerListeners() {
+            peer.on('connection', conn => setupDataConn(conn));
+            peer.on('call', call => { call.answer(processedStream); setupCall(call); });
+        }
+
+        function enterRoom() {
+            ui.joinScreen.style.display = 'none';
+            ui.mainScreen.style.display = 'flex';
+            renderGrid();
+            setInterval(() => {
+                Object.values(peers).forEach(p => { if (p.conn && p.conn.open) p.conn.send({ type: 'PING', time: Date.now() }); });
+            }, 2000);
+        }
+
+        function connectToPeer(targetId) {
+            if (targetId === myId || peers[targetId]) return;
+            const conn = peer.connect(targetId);
+            setupDataConn(conn);
+            const call = peer.call(targetId, processedStream);
+            setupCall(call);
+        }
+
+        function setupDataConn(conn) {
+            const targetId = conn.peer;
+            peers[targetId] = peers[targetId] || { ping: 0 };
+            peers[targetId].conn = conn;
+
+            conn.on('open', () => {
+                conn.send({ type: 'HELLO', name: myName, isMuted: myIsMuted });
+                if (isHost) broadcastRoomSync();
+                renderGrid();
+            });
+
+            conn.on('data', data => {
+                if (data.type === 'HELLO' || data.type === 'UPDATE') {
+                    const isNew = !peers[targetId].name && data.type === 'HELLO';
+                    peers[targetId].name = data.name;
+                    peers[targetId].isMuted = data.isMuted;
+                    renderGrid();
+                    if (isNew) {
+                        showToast(`Biri katıldı: ${data.name}`);
+                        if (isHost) broadcastRoomSync();
+                    }
+                }
+                else if (data.type === 'ROOM_SYNC') {
+                    data.ids.forEach(id => {
+                        if (id !== myId && !peers[id]) {
+                            if (myId > id) connectToPeer(id);
+                        }
+                    });
+                }
+                else if (data.type === 'PING') {
+                    conn.send({ type: 'PONG', time: data.time });
+                }
+                else if (data.type === 'PONG') {
+                    peers[targetId].ping = Date.now() - data.time;
+                    renderGrid();
+                }
+            });
+            conn.on('close', () => handlePeerDisconnect(targetId));
+        }
+
+        function setupCall(call) {
+            const targetId = call.peer;
+            peers[targetId] = peers[targetId] || { ping: 0 };
+            peers[targetId].call = call;
+
+            call.on('stream', remoteStream => {
+                peers[targetId].stream = remoteStream;
+                playAudio(targetId, remoteStream);
+            });
+            
+            call.on('close', () => handlePeerDisconnect(targetId));
+            call.on('error', () => handlePeerDisconnect(targetId));
+        }
+
+        function handlePeerDisconnect(targetId) {
+            if (peers[targetId]) {
+                delete peers[targetId];
+                const audio = document.getElementById('audio-' + targetId);
+                if (audio) audio.remove();
+                if (isHost) broadcastRoomSync();
+                renderGrid();
+            }
+        }
+
+        function broadcastRoomSync() {
+            const activeIds = Object.keys(peers).filter(id => peers[id].conn && peers[id].conn.open);
+            activeIds.push(myId);
+            Object.values(peers).forEach(p => {
+                if (p.conn && p.conn.open) p.conn.send({ type: 'ROOM_SYNC', ids: activeIds });
+            });
+        }
+
+        function playAudio(targetId, stream) {
+            let audio = document.getElementById('audio-' + targetId);
+            if (!audio) {
+                audio = document.createElement('audio');
+                audio.id = 'audio-' + targetId;
+                audio.autoplay = true;
+                if (currentSpeakerId && typeof audio.setSinkId === 'function') {
+                    audio.setSinkId(currentSpeakerId).catch(e => console.error(e));
+                }
+                document.body.appendChild(audio);
+            }
+            audio.srcObject = stream;
+            audio.muted = myIsDeafened;
+            peers[targetId].audio = audio;
+        }
+
+        function renderGrid() {
+            ui.grid.innerHTML = '';
+            const nameCounts = {};
+            function getDisplayName(baseName, isMe) {
+                const name = baseName.trim() || "Anonim";
+                if (!nameCounts[name]) {
+                    nameCounts[name] = 1;
+                    return name + (isMe ? " (Sen)" : "");
+                }
+                nameCounts[name]++;
+                return `${name} ${nameCounts[name]}` + (isMe ? " (Sen)" : "");
+            }
+            
+            const myRenderName = getDisplayName(myName, true);
+            ui.grid.appendChild(createCard(myId, myRenderName, myIsMuted, 0, true));
+            
+            Object.keys(peers).forEach(id => {
+                const p = peers[id];
+                if (p.name) {
+                    const renderName = getDisplayName(p.name, false);
+                    ui.grid.appendChild(createCard(id, renderName, p.isMuted, p.ping, false));
+                } else if (p.conn) {
+                    ui.grid.appendChild(createCard(id, "Katılıyor...", false, 0, false));
+                }
+            });
+        }
+
+        function createCard(id, name, isMuted, ping, isMe) {
+            const card = document.createElement('div');
+            card.className = `box card ${isMuted ? 'muted' : ''}`;
+            
+            const initial = name.charAt(0).toUpperCase() || "?";
+            
+            let pingHtml = '';
+            if (!isMe && ping > 0) {
+                const isHigh = ping > 150;
+                pingHtml = `<div class="ping ${isHigh ? 'high' : ''}"><i class="fas fa-signal"></i> ${ping}ms</div>`;
+            }
+            
+            const icon = isMuted ? 'fa-microphone-slash' : 'fa-microphone';
+            
+            card.innerHTML = `
+                ${pingHtml}
+                <div class="avatar">${initial}</div>
+                <div class="name">${name}</div>
+                <div class="status-icon"><i class="fas ${icon}"></i></div>
+            `;
+            return card;
+        }
+
+        let toastTimeout;
+        function showToast(msg) {
+            ui.toast.innerText = msg;
+            ui.toast.style.display = 'block';
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => ui.toast.style.display = 'none', 3000);
+        }
+
+        function toggleMic() {
+            myIsMuted = !myIsMuted;
+            if (rawMicStream) {
+                rawMicStream.getAudioTracks().forEach(t => t.enabled = !myIsMuted);
+            }
+            
+            if (myIsMuted) {
+                ui.btnMic.classList.add('muted');
+                ui.btnMic.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+            } else {
+                ui.btnMic.classList.remove('muted');
+                ui.btnMic.innerHTML = '<i class="fas fa-microphone"></i>';
+            }
+            
+            renderGrid();
+            
+            const msg = { type: 'UPDATE', name: myName, isMuted: myIsMuted };
+            Object.values(peers).forEach(p => {
+                if (p.conn && p.conn.open) p.conn.send(msg);
+            });
+        }
+
+        function toggleDeafen() {
+            myIsDeafened = !myIsDeafened;
+            if (myIsDeafened) {
+                ui.btnDeafen.classList.add('muted');
+                ui.btnDeafen.innerHTML = '<i class="fas fa-headphones-slash"></i>';
+                Object.values(peers).forEach(p => {
+                    if (p.audio) p.audio.muted = true;
+                });
+            } else {
+                ui.btnDeafen.classList.remove('muted');
+                ui.btnDeafen.innerHTML = '<i class="fas fa-headphones"></i>';
+                Object.values(peers).forEach(p => {
+                    if (p.audio) p.audio.muted = false;
+                });
+            }
+        }
+
+        ui.btnMic.addEventListener('click', toggleMic);
+        ui.btnDeafen.addEventListener('click', toggleDeafen);
+
+        document.getElementById('btn-copy').addEventListener('click', () => {
+            navigator.clipboard.writeText(window.location.href);
+            showToast("Bağlantı kopyalandı!");
+        });
+
+        ui.btnHotkey.addEventListener('click', () => {
+            isAssigningHotkey = true;
+            ui.btnHotkey.innerText = "Bir tuşa basın...";
+            ui.btnHotkey.style.borderColor = "var(--accent)";
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (isAssigningHotkey) {
+                e.preventDefault();
+                micHotkey = e.code;
+                isAssigningHotkey = false;
+                ui.btnHotkey.innerText = `Ata: (${e.code})`;
+                ui.btnHotkey.style.borderColor = "var(--border)";
+                return;
+            }
+            
+            if (micHotkey && e.code === micHotkey && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                toggleMic();
+            }
+        });
+
+        document.getElementById('btn-settings').addEventListener('click', () => {
+            ui.settingsName.value = myName;
+            ui.settingsNoise.checked = myNoiseSuppression;
+            ui.btnHotkey.innerText = `Ata: (${micHotkey || 'Yok'})`;
+            ui.settingsModal.style.display = 'flex';
+        });
+        
+        document.getElementById('close-settings').addEventListener('click', () => {
+            isAssigningHotkey = false;
+            ui.settingsModal.style.display = 'none';
+        });
+
+        document.getElementById('btn-save-settings').addEventListener('click', async () => {
+            const newName = ui.settingsName.value.trim() || "Anonim";
+            const newNoise = ui.settingsNoise.checked;
+            
+            let changedName = (newName !== myName);
+            myName = newName;
+            
+            if (newNoise !== myNoiseSuppression) {
+                myNoiseSuppression = newNoise;
+                await restartMic();
+            }
+            
+            if (changedName) {
+                const msg = { type: 'UPDATE', name: myName, isMuted: myIsMuted };
+                Object.values(peers).forEach(p => {
+                    if (p.conn && p.conn.open) p.conn.send(msg);
+                });
+            }
+            
+            renderGrid();
+            ui.settingsModal.style.display = 'none';
+        });
+    </script>
+</body>
+</html>
