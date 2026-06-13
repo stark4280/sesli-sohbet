@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>Sese Bağlan | Premium Voice</title>
     <!-- Modern Fontlar -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -196,7 +197,7 @@
     <!-- Bildirim (Toast) -->
     <div id="toast">Mesaj</div>
 
-    <script>
+    <script type="module">
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room');
         
@@ -270,15 +271,35 @@
             }
         });
 
-        async function initWebAudio() {
-            if (!rnnoise) {
-                ui.statusText.innerText = "Yapay zeka gürültü filtresi yükleniyor...";
+        async function loadRnnoise() {
+            const sources = [
+                'https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/dist/rnnoise.js',
+                'https://esm.sh/@shiguredo/rnnoise-wasm@2025.1.5'
+            ];
+            for (const url of sources) {
                 try {
-                    const { Rnnoise } = await import('https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/+esm');
-                    rnnoise = await Rnnoise.load();
-                    denoiseState = rnnoise.createDenoiseState();
+                    const mod = await import(url);
+                    const RnnoiseClass = mod.Rnnoise || mod.default;
+                    if (!RnnoiseClass?.load) continue;
+                    return await RnnoiseClass.load();
                 } catch (err) {
-                    console.warn('RNNoise yüklenemedi:', err);
+                    console.warn('RNNoise kaynagi basarisiz:', url, err);
+                }
+            }
+            return null;
+        }
+
+        function getOutgoingStream() {
+            return (denoiseState && processedStream) ? processedStream : rawMicStream;
+        }
+
+        async function initWebAudio() {
+            if (!rnnoise && myNoiseSuppression) {
+                ui.statusText.innerText = "Yapay zeka gürültü filtresi yükleniyor...";
+                rnnoise = await loadRnnoise();
+                if (rnnoise) {
+                    denoiseState = rnnoise.createDenoiseState();
+                } else {
                     showToast('AI gürültü filtresi yüklenemedi; tarayıcı filtresi kullanılıyor.');
                 }
             }
@@ -399,7 +420,7 @@
 
         function setupPeerListeners() {
             peer.on('connection', conn => setupDataConn(conn));
-            peer.on('call', call => { call.answer(processedStream); setupCall(call); });
+            peer.on('call', call => { call.answer(getOutgoingStream()); setupCall(call); });
         }
 
         function enterRoom() {
@@ -415,7 +436,7 @@
             if (targetId === myId || peers[targetId]) return;
             const conn = peer.connect(targetId);
             setupDataConn(conn);
-            const call = peer.call(targetId, processedStream);
+            const call = peer.call(targetId, getOutgoingStream());
             setupCall(call);
         }
 
