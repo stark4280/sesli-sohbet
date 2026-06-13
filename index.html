@@ -93,7 +93,6 @@
 
         .controls-center { display: flex; align-items: center; gap: 12px; }
         
-        /* Yenilenmiş Sağırlaştır Butonu */
         .btn-deafen {
             width: 52px;
             height: 52px;
@@ -171,8 +170,7 @@
             </div>
         </header>
 
-        <div class="grid" id="grid">
-            </div>
+        <div class="grid" id="grid"></div>
 
         <div class="controls-bar">
             <div class="device-group">
@@ -209,7 +207,7 @@
             <div class="toggle-container">
                 <div class="toggle-info">
                     <span>Gürültü Engelleme (Yapay Zeka)</span>
-                    <small>Fısıltıyı iletir, klavyeyi tamamen keser</small>
+                    <small>Klavye ve dip sesleri tamamen yok eder.</small>
                 </div>
                 <label class="switch">
                     <input type="checkbox" id="settings-noise" checked>
@@ -253,13 +251,9 @@
         let destNode = null;
         let processedStream = null;
         
+        // RNNoise Değişkenleri
         let rnnoise = null;
         let denoiseState = null;
-        let gateGain = 0;
-        const VAD_GATE_THRESHOLD = 0.48;
-        const VAD_ATTACK = 0.2;
-        const VAD_RELEASE = 0.04;
-        const RMS_GATE_THRESHOLD = 0.012;
         
         const peers = {}; 
 
@@ -294,6 +288,10 @@
             ui.statusText.innerText = "Mikrofon izni bekleniyor...";
             
             try {
+                // AudioContext'i ayağa kaldır
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                if (audioContext.state === 'suspended') await audioContext.resume();
+
                 await initWebAudio();
                 await restartMic(); 
                 await populateDevices();
@@ -326,7 +324,6 @@
         }
 
         function getOutgoingStream() {
-            // Web Audio API akışının canlı kalabilmesi için peer çağrılarında doğrudan işlenmiş akışı dönüyoruz
             return (myNoiseSuppression && processedStream) ? processedStream : rawMicStream;
         }
 
@@ -337,69 +334,77 @@
                 if (rnnoise) {
                     denoiseState = rnnoise.createDenoiseState();
                 } else {
-                    showToast('AI gürültü filtresi yüklenemedi; tarayıcı filtresi kullanılıyor.');
+                    showToast('AI gürültü filtresi yüklenemedi. Tarayıcı filtresi kullanılıyor.');
+                    myNoiseSuppression = false;
+                    ui.settingsNoise.checked = false;
                 }
             }
             
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
             destNode = audioContext.createMediaStreamDestination();
             noiseGateNode = audioContext.createScriptProcessor(4096, 1, 1);
             
             let inputQueue = new Float32Array(0);
             let outputQueue = new Float32Array(0);
-            gateGain = 0;
+            let isBuffering = true; // Matematiksel hataları önlemek için tampon mekanizması
             
-            noiseGateNode.onaudioprocess = function(audioProcessingEvent) {
-                const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
-                const outputBuffer = audioProcessingEvent.outputBuffer.getChannelData(0);
+            noiseGateNode.onaudioprocess = function(e) {
+                const inBuf = e.inputBuffer.getChannelData(0);
+                const outBuf = e.outputBuffer.getChannelData(0);
                 
-                if (!myNoiseSuppression) {
-                    for (let i = 0; i < inputBuffer.length; i++) outputBuffer[i] = inputBuffer[i];
+                // Eğer yapay zeka kapalıysa, sesi olduğu gibi geçir (0 gecikme)
+                if (!myNoiseSuppression || !denoiseState) {
+                    outBuf.set(inBuf);
                     return;
                 }
 
-                if (!denoiseState) {
-                    let rms = 0;
-                    for (let i = 0; i < inputBuffer.length; i++) rms += inputBuffer[i] * inputBuffer[i];
-                    rms = Math.sqrt(rms / inputBuffer.length);
-                    const targetGain = rms >= RMS_GATE_THRESHOLD ? 1 : 0;
-                    gateGain += (targetGain - gateGain) * (targetGain > gateGain ? VAD_ATTACK : VAD_RELEASE);
-                    for (let i = 0; i < inputBuffer.length; i++) outputBuffer[i] = inputBuffer[i] * gateGain;
-                    return;
-                }
-                
-                let newInput = new Float32Array(inputQueue.length + inputBuffer.length);
-                newInput.set(inputQueue);
-                newInput.set(inputBuffer, inputQueue.length);
-                inputQueue = newInput;
-                
+                // Gelen ham sesi giriş kuyruğuna at
+                let newIn = new Float32Array(inputQueue.length + inBuf.length);
+                newIn.set(inputQueue);
+                newIn.set(inBuf, inputQueue.length);
+                inputQueue = newIn;
+
+                // RNNoise tam 480 birimlik paketler istiyor, elimizdeki veriyi 480'lik dilimlere ayırıp işliyoruz
                 while (inputQueue.length >= 480) {
                     let chunk = inputQueue.slice(0, 480);
                     inputQueue = inputQueue.slice(480);
-                    const vad = denoiseState.processFrame(chunk);
-                    const targetGain = vad >= VAD_GATE_THRESHOLD ? 1 : 0;
-                    gateGain += (targetGain - gateGain) * (targetGain > gateGain ? VAD_ATTACK : VAD_RELEASE);
-                    for (let i = 0; i < chunk.length; i++) chunk[i] *= gateGain;
-                    let newOutput = new Float32Array(outputQueue.length + 480);
-                    newOutput.set(outputQueue);
-                    newOutput.set(chunk, outputQueue.length);
-                    outputQueue = newOutput;
+                    
+                    // KÖKTEN ÇÖZÜM: Hard-mute eden VAD sınırları kaldırıldı. Yapay zeka sesi işleyip direkt "chunk" içine geri bırakır.
+                    denoiseState.processFrame(chunk); 
+                    
+                    let newOut = new Float32Array(outputQueue.length + 480);
+                    newOut.set(outputQueue);
+                    newOut.set(chunk, outputQueue.length);
+                    outputQueue = newOut;
                 }
-                
-                if (outputQueue.length >= outputBuffer.length) {
-                    let toOutput = outputQueue.slice(0, outputBuffer.length);
-                    outputQueue = outputQueue.slice(outputBuffer.length);
-                    for (let i = 0; i < outputBuffer.length; i++) outputBuffer[i] = toOutput[i];
+
+                // Tamponlama: Çıkış buffer'ı tam dolmadan (kopmaları engellemek için) biraz veri biriktiriyoruz
+                if (isBuffering) {
+                    if (outputQueue.length >= outBuf.length * 2) {
+                        isBuffering = false;
+                    } else {
+                        outBuf.fill(0);
+                        return;
+                    }
+                }
+
+                // Kuyruktaki temizlenmiş sesi çıkışa yazdır
+                if (outputQueue.length >= outBuf.length) {
+                    outBuf.set(outputQueue.slice(0, outBuf.length));
+                    outputQueue = outputQueue.slice(outBuf.length);
                 } else {
-                    for (let i = 0; i < outputBuffer.length; i++) outputBuffer[i] = 0;
+                    // Veri yetişmediyse kalanını sıfırla doldur (Akış çökmesini tamamen engeller)
+                    outBuf.set(outputQueue);
+                    outBuf.fill(0, outputQueue.length);
+                    outputQueue = new Float32Array(0);
+                    isBuffering = true; 
                 }
             };
             
             noiseGateNode.connect(destNode);
             
-            // Tarayıcıların işlenmiş ses akışını öldürmemesi için küçük bir ses köprüsü kuruyoruz
+            // Tarayıcının ScriptProcessor'ü uyku moduna geçirmesini önlemek için görünmez köprü
             const dummyGain = audioContext.createGain();
-            dummyGain.gain.value = 0.001; // Tam sıfır yapmıyoruz ki akış canlı kalsın
+            dummyGain.gain.value = 0.001; 
             noiseGateNode.connect(dummyGain);
             dummyGain.connect(audioContext.destination);
             
@@ -409,7 +414,6 @@
         async function restartMic() {
             if (rawMicStream) rawMicStream.getTracks().forEach(t => t.stop());
             
-            // Yapay zeka filtresi devredeyken tarayıcının kendi agresif ve boğucu filtresini kapatıyoruz
             const constraints = {
                 audio: {
                     echoCancellation: true,
@@ -427,7 +431,7 @@
             micSourceNode = audioContext.createMediaStreamSource(rawMicStream);
             micSourceNode.connect(noiseGateNode);
 
-            // Peer görüşmelerindeki akışı dinamik olarak güncelle
+            // PeerJS yayınlarını (ses damarlarını) yeni cihaz ile dinamik güncelle
             Object.values(peers).forEach(p => {
                 if (p.call && p.call.peerConnection) {
                     const senders = p.call.peerConnection.getSenders();
@@ -497,7 +501,10 @@
 
         function setupPeerListeners() {
             peer.on('connection', conn => setupDataConn(conn));
-            peer.on('call', call => { call.answer(getOutgoingStream()); setupCall(call); });
+            peer.on('call', call => { 
+                call.answer(getOutgoingStream()); 
+                setupCall(call); 
+            });
         }
 
         function enterRoom() {
@@ -596,6 +603,7 @@
                 audio = document.createElement('audio');
                 audio.id = 'audio-' + targetId;
                 audio.autoplay = true;
+                audio.controls = false;
                 if (currentSpeakerId && typeof audio.setSinkId === 'function') {
                     audio.setSinkId(currentSpeakerId).catch(e => console.error(e));
                 }
@@ -604,6 +612,11 @@
             audio.srcObject = stream;
             audio.muted = myIsDeafened;
             peers[targetId].audio = audio;
+
+            audio.play().catch(err => {
+                console.log("Otomatik oynatma engellendi, kullanici tiklamasi bekleniyor.", err);
+                window.addEventListener('click', () => { audio.play(); }, { once: true });
+            });
         }
 
         function renderGrid() {
@@ -635,7 +648,6 @@
 
         function createCard(id, name, isMuted, isDeafened, ping, isMe) {
             const card = document.createElement('div');
-            // İsmin yanındaki sağır ibaresi için 'deafened' sınıfını isDeafened durumuna göre ekliyoruz
             card.className = `box card ${isMuted ? 'muted' : ''} ${isDeafened ? 'deafened' : ''}`;
             
             const initial = name.charAt(0).toUpperCase() || "?";
@@ -647,8 +659,6 @@
             }
             
             const icon = isMuted ? 'fa-microphone-slash' : 'fa-microphone';
-            
-            // Eğer kullanıcı sağırlaşmışsa isminin tam altına kırmızı "Sağır" rozetini basıyoruz
             const deafenBadge = isDeafened
                 ? '<span class="deafen-badge"><i class="fas fa-headphones-slash"></i> Sağır</span>'
                 : '';
@@ -676,7 +686,6 @@
         function toggleMic() {
             myIsMuted = !myIsMuted;
             
-            // Eğer sağırlaştırma aktifken mikrofon açılmaya çalışılıyorsa sağırlaştırmayı kapatıyoruz
             if (!myIsMuted && myIsDeafened) {
                 myIsDeafened = false;
                 ui.btnDeafen.classList.remove('active');
@@ -714,25 +723,15 @@
             myIsDeafened = !myIsDeafened;
             
             if (myIsDeafened) {
-                // KURAL: Sağırlaşınca mikrofonu da otomatik kapat (Mute + Deafen)
                 myIsMuted = true; 
                 ui.btnDeafen.classList.add('active');
                 ui.btnDeafen.innerHTML = '<i class="fas fa-headphones-slash"></i>';
-                
-                // Gelen sesleri kapat
-                Object.values(peers).forEach(p => {
-                    if (p.audio) p.audio.muted = true;
-                });
+                Object.values(peers).forEach(p => { if (p.audio) p.audio.muted = true; });
             } else {
-                // Sağırlaştırmadan çıkınca mikrofonu geri aç
                 myIsMuted = false;
                 ui.btnDeafen.classList.remove('active');
                 ui.btnDeafen.innerHTML = '<i class="fas fa-headphones"></i>';
-                
-                // Gelen sesleri geri aç
-                Object.values(peers).forEach(p => {
-                    if (p.audio) p.audio.muted = false;
-                });
+                Object.values(peers).forEach(p => { if (p.audio) p.audio.muted = false; });
             }
             
             if (rawMicStream) {
