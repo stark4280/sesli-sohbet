@@ -124,17 +124,6 @@
         .form-group label { display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.85rem; }
         .form-group input { width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none; }
         
-        .toggle-container { display: flex; justify-content: space-between; align-items: center; margin: 20px 0; padding: 12px; background: #2a2a2a; border-radius: 6px; border: 1px solid var(--border); }
-        .toggle-info span { font-size: 0.95rem; }
-        .toggle-info small { font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 4px; }
-        
-        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; border-radius: 20px; }
-        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #ccc; border-radius: 50%; transition: .2s; }
-        input:checked + .slider { background-color: var(--success); }
-        input:checked + .slider:before { transform: translateX(20px); background-color: #fff; }
-
         #toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #2a2a2a; padding: 10px 20px; border-radius: 6px; border: 1px solid var(--border); display: none; font-size: 0.9rem; z-index: 1000; }
         
         @media(max-width: 600px) {
@@ -204,17 +193,6 @@
                 <input type="text" id="settings-name" placeholder="Adınız">
             </div>
             
-            <div class="toggle-container">
-                <div class="toggle-info">
-                    <span>Gürültü Engelleme (Yapay Zeka)</span>
-                    <small>Klavye ve dip sesleri tamamen yok eder.</small>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" id="settings-noise" checked>
-                    <span class="slider"></span>
-                </label>
-            </div>
-            
             <div class="form-group" style="margin-top: 15px;">
                 <label>Mikrofon Kısayol Tuşu (Sadece tarayıcı açıkken çalışır)</label>
                 <button id="btn-hotkey" class="btn" style="background:var(--card-bg); border:1px solid var(--border); color:var(--text);">Ata: (Yok)</button>
@@ -237,7 +215,6 @@
         let myName = "";
         let myIsMuted = false;
         let myIsDeafened = false;
-        let myNoiseSuppression = true;
         let micHotkey = null;
         let isAssigningHotkey = false;
         
@@ -245,15 +222,6 @@
         let currentSpeakerId = "";
         
         let rawMicStream = null;
-        let audioContext = null;
-        let micSourceNode = null;
-        let noiseGateNode = null;
-        let destNode = null;
-        let processedStream = null;
-        
-        // RNNoise Değişkenleri
-        let rnnoise = null;
-        let denoiseState = null;
         
         const peers = {}; 
 
@@ -272,7 +240,6 @@
             roomBadge: document.getElementById('room-badge'),
             settingsModal: document.getElementById('settings-modal'),
             settingsName: document.getElementById('settings-name'),
-            settingsNoise: document.getElementById('settings-noise'),
             btnHotkey: document.getElementById('btn-hotkey')
         };
 
@@ -288,11 +255,6 @@
             ui.statusText.innerText = "Mikrofon izni bekleniyor...";
             
             try {
-                // AudioContext'i ayağa kaldır
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-                if (audioContext.state === 'suspended') await audioContext.resume();
-
-                await initWebAudio();
                 await restartMic(); 
                 await populateDevices();
                 
@@ -305,142 +267,30 @@
             }
         });
 
-        async function loadRnnoise() {
-            const sources = [
-                'https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/dist/rnnoise.js',
-                'https://esm.sh/@shiguredo/rnnoise-wasm@2025.1.5'
-            ];
-            for (const url of sources) {
-                try {
-                    const mod = await import(url);
-                    const RnnoiseClass = mod.Rnnoise || mod.default;
-                    if (!RnnoiseClass?.load) continue;
-                    return await RnnoiseClass.load();
-                } catch (err) {
-                    console.warn('RNNoise kaynagi basarisiz:', url, err);
-                }
-            }
-            return null;
-        }
-
-        function getOutgoingStream() {
-            return (myNoiseSuppression && processedStream) ? processedStream : rawMicStream;
-        }
-
-        async function initWebAudio() {
-            if (!rnnoise && myNoiseSuppression) {
-                ui.statusText.innerText = "Yapay zeka gürültü filtresi yükleniyor...";
-                rnnoise = await loadRnnoise();
-                if (rnnoise) {
-                    denoiseState = rnnoise.createDenoiseState();
-                } else {
-                    showToast('AI gürültü filtresi yüklenemedi. Tarayıcı filtresi kullanılıyor.');
-                    myNoiseSuppression = false;
-                    ui.settingsNoise.checked = false;
-                }
-            }
-            
-            destNode = audioContext.createMediaStreamDestination();
-            noiseGateNode = audioContext.createScriptProcessor(4096, 1, 1);
-            
-            let inputQueue = new Float32Array(0);
-            let outputQueue = new Float32Array(0);
-            let isBuffering = true; // Matematiksel hataları önlemek için tampon mekanizması
-            
-            noiseGateNode.onaudioprocess = function(e) {
-                const inBuf = e.inputBuffer.getChannelData(0);
-                const outBuf = e.outputBuffer.getChannelData(0);
-                
-                // Eğer yapay zeka kapalıysa, sesi olduğu gibi geçir (0 gecikme)
-                if (!myNoiseSuppression || !denoiseState) {
-                    outBuf.set(inBuf);
-                    return;
-                }
-
-                // Gelen ham sesi giriş kuyruğuna at
-                let newIn = new Float32Array(inputQueue.length + inBuf.length);
-                newIn.set(inputQueue);
-                newIn.set(inBuf, inputQueue.length);
-                inputQueue = newIn;
-
-                // RNNoise tam 480 birimlik paketler istiyor, elimizdeki veriyi 480'lik dilimlere ayırıp işliyoruz
-                while (inputQueue.length >= 480) {
-                    let chunk = inputQueue.slice(0, 480);
-                    inputQueue = inputQueue.slice(480);
-                    
-                    // KÖKTEN ÇÖZÜM: Hard-mute eden VAD sınırları kaldırıldı. Yapay zeka sesi işleyip direkt "chunk" içine geri bırakır.
-                    denoiseState.processFrame(chunk); 
-                    
-                    let newOut = new Float32Array(outputQueue.length + 480);
-                    newOut.set(outputQueue);
-                    newOut.set(chunk, outputQueue.length);
-                    outputQueue = newOut;
-                }
-
-                // Tamponlama: Çıkış buffer'ı tam dolmadan (kopmaları engellemek için) biraz veri biriktiriyoruz
-                if (isBuffering) {
-                    if (outputQueue.length >= outBuf.length * 2) {
-                        isBuffering = false;
-                    } else {
-                        outBuf.fill(0);
-                        return;
-                    }
-                }
-
-                // Kuyruktaki temizlenmiş sesi çıkışa yazdır
-                if (outputQueue.length >= outBuf.length) {
-                    outBuf.set(outputQueue.slice(0, outBuf.length));
-                    outputQueue = outputQueue.slice(outBuf.length);
-                } else {
-                    // Veri yetişmediyse kalanını sıfırla doldur (Akış çökmesini tamamen engeller)
-                    outBuf.set(outputQueue);
-                    outBuf.fill(0, outputQueue.length);
-                    outputQueue = new Float32Array(0);
-                    isBuffering = true; 
-                }
-            };
-            
-            noiseGateNode.connect(destNode);
-            
-            // Tarayıcının ScriptProcessor'ü uyku moduna geçirmesini önlemek için görünmez köprü
-            const dummyGain = audioContext.createGain();
-            dummyGain.gain.value = 0.001; 
-            noiseGateNode.connect(dummyGain);
-            dummyGain.connect(audioContext.destination);
-            
-            processedStream = destNode.stream;
-        }
-
         async function restartMic() {
-            if (rawMicStream) rawMicStream.getTracks().forEach(t => t.stop());
+            if (rawMicStream) {
+                rawMicStream.getTracks().forEach(t => t.stop());
+            }
             
             const constraints = {
                 audio: {
                     echoCancellation: true,
-                    noiseSuppression: !myNoiseSuppression, 
-                    autoGainControl: !myNoiseSuppression,
-                    highpassFilter: !myNoiseSuppression
+                    noiseSuppression: true, 
+                    autoGainControl: true
                 }
             };
             if (currentMicId) constraints.audio.deviceId = { exact: currentMicId };
             
             rawMicStream = await navigator.mediaDevices.getUserMedia(constraints);
             rawMicStream.getAudioTracks().forEach(t => t.enabled = !myIsMuted);
-            
-            if (micSourceNode) micSourceNode.disconnect();
-            micSourceNode = audioContext.createMediaStreamSource(rawMicStream);
-            micSourceNode.connect(noiseGateNode);
 
-            // PeerJS yayınlarını (ses damarlarını) yeni cihaz ile dinamik güncelle
+            // PeerJS yayınlarını yeni cihaz ile dinamik güncelle
             Object.values(peers).forEach(p => {
                 if (p.call && p.call.peerConnection) {
                     const senders = p.call.peerConnection.getSenders();
                     const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-                    if (audioSender) {
-                        const currentTracks = getOutgoingStream().getAudioTracks();
-                        if (currentTracks.length > 0) {
-                            audioSender.replaceTrack(currentTracks[0]);
-                        }
+                    if (audioSender && rawMicStream.getAudioTracks().length > 0) {
+                        audioSender.replaceTrack(rawMicStream.getAudioTracks()[0]);
                     }
                 }
             });
@@ -502,7 +352,7 @@
         function setupPeerListeners() {
             peer.on('connection', conn => setupDataConn(conn));
             peer.on('call', call => { 
-                call.answer(getOutgoingStream()); 
+                call.answer(rawMicStream); 
                 setupCall(call); 
             });
         }
@@ -520,7 +370,7 @@
             if (targetId === myId || peers[targetId]) return;
             const conn = peer.connect(targetId);
             setupDataConn(conn);
-            const call = peer.call(targetId, getOutgoingStream());
+            const call = peer.call(targetId, rawMicStream);
             setupCall(call);
         }
 
@@ -775,7 +625,6 @@
 
         document.getElementById('btn-settings').addEventListener('click', () => {
             ui.settingsName.value = myName;
-            ui.settingsNoise.checked = myNoiseSuppression;
             ui.btnHotkey.innerText = `Ata: (${micHotkey || 'Yok'})`;
             ui.settingsModal.style.display = 'flex';
         });
@@ -787,15 +636,9 @@
 
         document.getElementById('btn-save-settings').addEventListener('click', async () => {
             const newName = ui.settingsName.value.trim() || "Anonim";
-            const newNoise = ui.settingsNoise.checked;
             
             let changedName = (newName !== myName);
             myName = newName;
-            
-            if (newNoise !== myNoiseSuppression) {
-                myNoiseSuppression = newNoise;
-                await restartMic();
-            }
             
             if (changedName) {
                 broadcastState();
