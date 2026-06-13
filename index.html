@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>Sese Bağlan | Premium Voice</title>
-    <!-- Modern Fontlar -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <!-- İkonlar -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- PeerJS -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -59,6 +56,21 @@
         .card { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; position: relative; min-height: 180px; }
         .card .avatar { width: 70px; height: 70px; border-radius: 50%; background: #2a2a2a; border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; font-size: 1.8rem; font-weight: 600; margin-bottom: 15px; color: #fff;}
         .card .name { font-size: 1rem; font-weight: 600; text-align: center; }
+        .name-row { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        
+        .deafen-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            padding: 3px 8px;
+            border-radius: 999px;
+        }
+        .card.deafened .avatar { border-color: var(--danger); }
         
         .card .ping { position: absolute; top: 10px; right: 10px; font-size: 0.75rem; color: var(--text-muted); background: #121212; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
         .card .ping i { color: var(--success); }
@@ -68,7 +80,7 @@
         .card.muted .status-icon { color: var(--danger); }
         .card:not(.muted) .status-icon { color: var(--success); }
         
-        /* Kontrol Barı (Cihaz Seçimleri) */
+        /* Kontrol Barı */
         .controls-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-top: 1px solid var(--border); background: var(--card-bg); flex-wrap: wrap; gap: 15px; }
         
         .device-group { display: flex; align-items: center; gap: 10px; background: #2a2a2a; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
@@ -76,8 +88,31 @@
         .device-select { background: transparent; color: var(--text); border: none; outline: none; font-size: 0.85rem; max-width: 150px; cursor: pointer; }
         .device-select option { background: var(--card-bg); color: var(--text); }
         
-        .btn-mic { width: 50px; height: 50px; border-radius: 50%; border: none; font-size: 1.2rem; color: #fff; cursor: pointer; background: var(--accent); display: flex; justify-content: center; align-items: center; }
+        .btn-mic { width: 52px; height: 52px; border-radius: 50%; border: none; font-size: 1.2rem; color: #fff; cursor: pointer; background: var(--accent); display: flex; justify-content: center; align-items: center; transition: background 0.15s; }
         .btn-mic.muted { background: var(--danger); }
+
+        .controls-center { display: flex; align-items: center; gap: 12px; }
+        
+        /* Yenilenmiş Sağırlaştır Butonu */
+        .btn-deafen {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: none;
+            background: #2a2a2a;
+            color: var(--text);
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-deafen:hover { background: #333; }
+        .btn-deafen.active {
+            background: var(--danger);
+            color: #fff;
+        }
 
         /* Ayarlar Modalı */
         #settings-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; }
@@ -111,7 +146,6 @@
 </head>
 <body>
 
-    <!-- Başlangıç Ekranı -->
     <div id="join-screen" class="box">
         <h1>Sese Bağlan</h1>
         <p>Odaya katılmak için ismini gir ve cihazlara izin ver.</p>
@@ -126,7 +160,6 @@
         <div id="join-status"></div>
     </div>
 
-    <!-- Ana Sohbet Ekranı -->
     <div id="main-screen" class="box">
         <header>
             <div class="room-info">
@@ -139,8 +172,7 @@
         </header>
 
         <div class="grid" id="grid">
-            <!-- Katılımcılar buraya gelecek -->
-        </div>
+            </div>
 
         <div class="controls-bar">
             <div class="device-group">
@@ -148,14 +180,15 @@
                 <select id="mic-select" class="device-select"><option>Mikrofon Yükleniyor...</option></select>
             </div>
             
-            <button class="btn-mic" id="btn-mic" title="Mikrofonu Aç/Kapat">
-                <i class="fas fa-microphone"></i>
-            </button>
-            
-            <button class="btn-mic" id="btn-deafen" title="Herkesi Sustur (Sağırlaş)">
-                <i class="fas fa-headphones"></i>
-            </button>
-            
+            <div class="controls-center">
+                <button class="btn-mic" id="btn-mic" title="Mikrofonu Aç/Kapat">
+                    <i class="fas fa-microphone"></i>
+                </button>
+                
+                <button class="btn-deafen" id="btn-deafen" title="Sağırlaş (Susturur)">
+                    <i class="fas fa-headphones"></i>
+                </button>
+            </div>
             <div class="device-group">
                 <i class="fas fa-volume-up"></i>
                 <select id="speaker-select" class="device-select"><option>Hoparlör Yükleniyor...</option></select>
@@ -163,7 +196,6 @@
         </div>
     </div>
 
-    <!-- Ayarlar Modalı -->
     <div id="settings-modal">
         <div class="box modal-content">
             <i class="fas fa-times close-modal" id="close-settings"></i>
@@ -194,7 +226,6 @@
         </div>
     </div>
 
-    <!-- Bildirim (Toast) -->
     <div id="toast">Mesaj</div>
 
     <script type="module">
@@ -224,6 +255,11 @@
         
         let rnnoise = null;
         let denoiseState = null;
+        let gateGain = 0;
+        const VAD_GATE_THRESHOLD = 0.48;
+        const VAD_ATTACK = 0.2;
+        const VAD_RELEASE = 0.04;
+        const RMS_GATE_THRESHOLD = 0.012;
         
         const peers = {}; 
 
@@ -290,7 +326,8 @@
         }
 
         function getOutgoingStream() {
-            return (denoiseState && processedStream) ? processedStream : rawMicStream;
+            // Web Audio API akışının canlı kalabilmesi için peer çağrılarında doğrudan işlenmiş akışı dönüyoruz
+            return (myNoiseSuppression && processedStream) ? processedStream : rawMicStream;
         }
 
         async function initWebAudio() {
@@ -310,13 +347,24 @@
             
             let inputQueue = new Float32Array(0);
             let outputQueue = new Float32Array(0);
+            gateGain = 0;
             
             noiseGateNode.onaudioprocess = function(audioProcessingEvent) {
                 const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
                 const outputBuffer = audioProcessingEvent.outputBuffer.getChannelData(0);
                 
-                if (!myNoiseSuppression || !denoiseState) {
+                if (!myNoiseSuppression) {
                     for (let i = 0; i < inputBuffer.length; i++) outputBuffer[i] = inputBuffer[i];
+                    return;
+                }
+
+                if (!denoiseState) {
+                    let rms = 0;
+                    for (let i = 0; i < inputBuffer.length; i++) rms += inputBuffer[i] * inputBuffer[i];
+                    rms = Math.sqrt(rms / inputBuffer.length);
+                    const targetGain = rms >= RMS_GATE_THRESHOLD ? 1 : 0;
+                    gateGain += (targetGain - gateGain) * (targetGain > gateGain ? VAD_ATTACK : VAD_RELEASE);
+                    for (let i = 0; i < inputBuffer.length; i++) outputBuffer[i] = inputBuffer[i] * gateGain;
                     return;
                 }
                 
@@ -328,7 +376,10 @@
                 while (inputQueue.length >= 480) {
                     let chunk = inputQueue.slice(0, 480);
                     inputQueue = inputQueue.slice(480);
-                    denoiseState.processFrame(chunk);
+                    const vad = denoiseState.processFrame(chunk);
+                    const targetGain = vad >= VAD_GATE_THRESHOLD ? 1 : 0;
+                    gateGain += (targetGain - gateGain) * (targetGain > gateGain ? VAD_ATTACK : VAD_RELEASE);
+                    for (let i = 0; i < chunk.length; i++) chunk[i] *= gateGain;
                     let newOutput = new Float32Array(outputQueue.length + 480);
                     newOutput.set(outputQueue);
                     newOutput.set(chunk, outputQueue.length);
@@ -345,16 +396,28 @@
             };
             
             noiseGateNode.connect(destNode);
+            
+            // Tarayıcıların işlenmiş ses akışını öldürmemesi için küçük bir ses köprüsü kuruyoruz
             const dummyGain = audioContext.createGain();
-            dummyGain.gain.value = 0;
+            dummyGain.gain.value = 0.001; // Tam sıfır yapmıyoruz ki akış canlı kalsın
             noiseGateNode.connect(dummyGain);
             dummyGain.connect(audioContext.destination);
+            
             processedStream = destNode.stream;
         }
 
         async function restartMic() {
             if (rawMicStream) rawMicStream.getTracks().forEach(t => t.stop());
-            const constraints = { audio: { echoCancellation: true, noiseSuppression: myNoiseSuppression, autoGainControl: true } };
+            
+            // Yapay zeka filtresi devredeyken tarayıcının kendi agresif ve boğucu filtresini kapatıyoruz
+            const constraints = {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: !myNoiseSuppression, 
+                    autoGainControl: !myNoiseSuppression,
+                    highpassFilter: !myNoiseSuppression
+                }
+            };
             if (currentMicId) constraints.audio.deviceId = { exact: currentMicId };
             
             rawMicStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -363,6 +426,20 @@
             if (micSourceNode) micSourceNode.disconnect();
             micSourceNode = audioContext.createMediaStreamSource(rawMicStream);
             micSourceNode.connect(noiseGateNode);
+
+            // Peer görüşmelerindeki akışı dinamik olarak güncelle
+            Object.values(peers).forEach(p => {
+                if (p.call && p.call.peerConnection) {
+                    const senders = p.call.peerConnection.getSenders();
+                    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+                    if (audioSender) {
+                        const currentTracks = getOutgoingStream().getAudioTracks();
+                        if (currentTracks.length > 0) {
+                            audioSender.replaceTrack(currentTracks[0]);
+                        }
+                    }
+                }
+            });
         }
 
         async function populateDevices() {
@@ -446,7 +523,7 @@
             peers[targetId].conn = conn;
 
             conn.on('open', () => {
-                conn.send({ type: 'HELLO', name: myName, isMuted: myIsMuted });
+                conn.send({ type: 'HELLO', name: myName, isMuted: myIsMuted, isDeafened: myIsDeafened });
                 if (isHost) broadcastRoomSync();
                 renderGrid();
             });
@@ -456,6 +533,7 @@
                     const isNew = !peers[targetId].name && data.type === 'HELLO';
                     peers[targetId].name = data.name;
                     peers[targetId].isMuted = data.isMuted;
+                    peers[targetId].isDeafened = !!data.isDeafened;
                     renderGrid();
                     if (isNew) {
                         showToast(`Biri katıldı: ${data.name}`);
@@ -542,22 +620,23 @@
             }
             
             const myRenderName = getDisplayName(myName, true);
-            ui.grid.appendChild(createCard(myId, myRenderName, myIsMuted, 0, true));
+            ui.grid.appendChild(createCard(myId, myRenderName, myIsMuted, myIsDeafened, 0, true));
             
             Object.keys(peers).forEach(id => {
                 const p = peers[id];
                 if (p.name) {
                     const renderName = getDisplayName(p.name, false);
-                    ui.grid.appendChild(createCard(id, renderName, p.isMuted, p.ping, false));
+                    ui.grid.appendChild(createCard(id, renderName, p.isMuted, p.isDeafened, p.ping, false));
                 } else if (p.conn) {
-                    ui.grid.appendChild(createCard(id, "Katılıyor...", false, 0, false));
+                    ui.grid.appendChild(createCard(id, "Katılıyor...", false, false, 0, false));
                 }
             });
         }
 
-        function createCard(id, name, isMuted, ping, isMe) {
+        function createCard(id, name, isMuted, isDeafened, ping, isMe) {
             const card = document.createElement('div');
-            card.className = `box card ${isMuted ? 'muted' : ''}`;
+            // İsmin yanındaki sağır ibaresi için 'deafened' sınıfını isDeafened durumuna göre ekliyoruz
+            card.className = `box card ${isMuted ? 'muted' : ''} ${isDeafened ? 'deafened' : ''}`;
             
             const initial = name.charAt(0).toUpperCase() || "?";
             
@@ -569,10 +648,18 @@
             
             const icon = isMuted ? 'fa-microphone-slash' : 'fa-microphone';
             
+            // Eğer kullanıcı sağırlaşmışsa isminin tam altına kırmızı "Sağır" rozetini basıyoruz
+            const deafenBadge = isDeafened
+                ? '<span class="deafen-badge"><i class="fas fa-headphones-slash"></i> Sağır</span>'
+                : '';
+            
             card.innerHTML = `
                 ${pingHtml}
                 <div class="avatar">${initial}</div>
-                <div class="name">${name}</div>
+                <div class="name-row">
+                    <div class="name">${name}</div>
+                    ${deafenBadge}
+                </div>
                 <div class="status-icon"><i class="fas ${icon}"></i></div>
             `;
             return card;
@@ -588,10 +675,25 @@
 
         function toggleMic() {
             myIsMuted = !myIsMuted;
+            
+            // Eğer sağırlaştırma aktifken mikrofon açılmaya çalışılıyorsa sağırlaştırmayı kapatıyoruz
+            if (!myIsMuted && myIsDeafened) {
+                myIsDeafened = false;
+                ui.btnDeafen.classList.remove('active');
+                ui.btnDeafen.innerHTML = '<i class="fas fa-headphones"></i>';
+                Object.values(peers).forEach(p => { if (p.audio) p.audio.muted = false; });
+            }
+
             if (rawMicStream) {
                 rawMicStream.getAudioTracks().forEach(t => t.enabled = !myIsMuted);
             }
             
+            updateMicUI();
+            renderGrid();
+            broadcastState();
+        }
+
+        function updateMicUI() {
             if (myIsMuted) {
                 ui.btnMic.classList.add('muted');
                 ui.btnMic.innerHTML = '<i class="fas fa-microphone-slash"></i>';
@@ -599,10 +701,10 @@
                 ui.btnMic.classList.remove('muted');
                 ui.btnMic.innerHTML = '<i class="fas fa-microphone"></i>';
             }
-            
-            renderGrid();
-            
-            const msg = { type: 'UPDATE', name: myName, isMuted: myIsMuted };
+        }
+
+        function broadcastState() {
+            const msg = { type: 'UPDATE', name: myName, isMuted: myIsMuted, isDeafened: myIsDeafened };
             Object.values(peers).forEach(p => {
                 if (p.conn && p.conn.open) p.conn.send(msg);
             });
@@ -610,19 +712,36 @@
 
         function toggleDeafen() {
             myIsDeafened = !myIsDeafened;
+            
             if (myIsDeafened) {
-                ui.btnDeafen.classList.add('muted');
+                // KURAL: Sağırlaşınca mikrofonu da otomatik kapat (Mute + Deafen)
+                myIsMuted = true; 
+                ui.btnDeafen.classList.add('active');
                 ui.btnDeafen.innerHTML = '<i class="fas fa-headphones-slash"></i>';
+                
+                // Gelen sesleri kapat
                 Object.values(peers).forEach(p => {
                     if (p.audio) p.audio.muted = true;
                 });
             } else {
-                ui.btnDeafen.classList.remove('muted');
+                // Sağırlaştırmadan çıkınca mikrofonu geri aç
+                myIsMuted = false;
+                ui.btnDeafen.classList.remove('active');
                 ui.btnDeafen.innerHTML = '<i class="fas fa-headphones"></i>';
+                
+                // Gelen sesleri geri aç
                 Object.values(peers).forEach(p => {
                     if (p.audio) p.audio.muted = false;
                 });
             }
+            
+            if (rawMicStream) {
+                rawMicStream.getAudioTracks().forEach(t => t.enabled = !myIsMuted);
+            }
+            
+            updateMicUI();
+            renderGrid();
+            broadcastState();
         }
 
         ui.btnMic.addEventListener('click', toggleMic);
@@ -680,10 +799,7 @@
             }
             
             if (changedName) {
-                const msg = { type: 'UPDATE', name: myName, isMuted: myIsMuted };
-                Object.values(peers).forEach(p => {
-                    if (p.conn && p.conn.open) p.conn.send(msg);
-                });
+                broadcastState();
             }
             
             renderGrid();
