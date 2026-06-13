@@ -10,8 +10,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PeerJS -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    <!-- RNNoise AI -->
-    <script src="https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/dist/rnnoise.min.js"></script>
     <style>
         :root {
             --bg-color: #121212;
@@ -275,8 +273,14 @@
         async function initWebAudio() {
             if (!rnnoise) {
                 ui.statusText.innerText = "Yapay zeka gürültü filtresi yükleniyor...";
-                rnnoise = await Rnnoise.load();
-                denoiseState = rnnoise.createDenoiseState();
+                try {
+                    const { Rnnoise } = await import('https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2025.1.5/+esm');
+                    rnnoise = await Rnnoise.load();
+                    denoiseState = rnnoise.createDenoiseState();
+                } catch (err) {
+                    console.warn('RNNoise yüklenemedi:', err);
+                    showToast('AI gürültü filtresi yüklenemedi; tarayıcı filtresi kullanılıyor.');
+                }
             }
             
             audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
